@@ -19,7 +19,7 @@
       pkgs = nixpkgs.legacyPackages.${system};
     in
     {
-      homeConfigurations."pi" = home-manager.lib.homeManagerConfiguration 
+      homeConfigurations."datalogger" = home-manager.lib.homeManagerConfiguration 
       {
         inherit pkgs;
         

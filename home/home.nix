@@ -1,10 +1,6 @@
 { config, pkgs, ... }:
 
 {
-  # Basic User Info
-  home.username = "pi";
-  home.homeDirectory = "/home/pi";
-
   # Essential Packages for an IoT Device
   home.packages = with pkgs; 
   [
