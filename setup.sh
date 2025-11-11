@@ -49,10 +49,17 @@ echo "--- Old artifact cleanup complete. ---"
 echo ""
 
 echo "--- [Step 4/9] Installing Nix Package Manager (Daemon) ---"
-# This runs the official installer script for Nix in daemon (multi-user) mode.
-# We pipe the curl download directly into sh.
-curl --proto '=https' --tlsv1.2 -L https://nixos.org/nix/install | sh -s -- --daemon
-echo "--- Nix installation complete. ---"
+# Check if Nix is already installed by looking for the /nix directory
+if [ -d "/nix" ]; then
+    echo "The /nix directory already exists."
+    echo "--- Nix appears to be already installed. Skipping installation. ---"
+else
+    echo "No existing /nix directory found. Starting new installation..."
+    # This runs the official installer script for Nix in daemon (multi-user) mode.
+    # We pipe the curl download directly into sh.
+    curl --proto '=https' --tlsv1.2 -L https://nixos.org/nix/install | sh -s -- --daemon
+    echo "--- Nix installation complete. ---"
+fi
 echo ""
 
 echo "--- [Step 5/9] Configuring Nix for Flakes ---"
