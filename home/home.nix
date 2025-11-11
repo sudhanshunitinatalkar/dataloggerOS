@@ -17,6 +17,8 @@
     gptfdisk
     fastfetch
     sops
+
+    cloudflared
   ];
 
   # Let Home Manager manage itself
