@@ -24,14 +24,25 @@ apt upgrade -y
 echo "--- System update complete. ---"
 echo ""
 
-echo "--- [Step 2/7] Installing Nix Package Manager (Daemon) ---"
+echo "--- [Step 2/8] Cleaning up previous Nix install artifacts ---"
+# The installer will fail if old backup files exist from a previous
+# or failed installation. We remove them to ensure this script is
+# rerunnable and the installation is clean.
+rm -f /etc/bashrc.backup-before-nix
+rm -f /etc/profile.d/nix.sh.backup-before-nix
+rm -f /etc/zshrc.backup-before-nix
+rm -f /etc/bash.bashrc.backup-before-nix
+echo "--- Old artifact cleanup complete. ---"
+echo ""
+
+echo "--- [Step 3/8] Installing Nix Package Manager (Daemon) ---"
 # This runs the official installer script for Nix in daemon (multi-user) mode.
 # We pipe the curl download directly into sh.
 curl --proto '=https' --tlsv1.2 -L https://nixos.org/nix/install | sh -s -- --daemon
 echo "--- Nix installation complete. ---"
 echo ""
 
-echo "--- [Step 3/7] Configuring Nix for Flakes ---"
+echo "--- [Step 4/8] Configuring Nix for Flakes ---"
 # This enables experimental features like flakes, which are
 # essential for modern Nix-based dataloggers.
 NIX_CONF_FILE="/etc/nix/nix.conf"
@@ -52,7 +63,7 @@ fi
 echo ""
 
 
-echo "--- [Step 4/7] Enabling Automatic Security Updates ---"
+echo "--- [Step 5/8] Enabling Automatic Security Updates ---"
 # This installs and configures 'unattended-upgrades' to automatically
 # apply security updates in the background.
 apt install unattended-upgrades -y
@@ -61,7 +72,7 @@ echo "--- Automatic updates enabled. ---"
 echo ""
 
 
-echo "--- [Step 5/7] Enabling User Services on Boot (Linger) ---"
+echo "--- [Step 6/8] Enabling User Services on Boot (Linger) ---"
 # This allows systemd user services (like those Nix may create)
 # to start at boot, even before a user logs in.
 # We will automatically use the user who invoked 'sudo' ($SUDO_USER).
@@ -86,7 +97,7 @@ else
 fi
 echo ""
 
-echo "--- [Step 6/7] Setup Complete. Rebooting... ---"
+echo "--- [Step 7/8] Setup Complete. Rebooting... ---"
 echo "The system will reboot in 10 seconds. Press Ctrl+C to cancel."
 sleep 10
 reboot
