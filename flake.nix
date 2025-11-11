@@ -2,8 +2,6 @@
   description = "RPi Home Manager Config";
 
   inputs = {
-    # Using unstable for RPi often gets better ARM support, 
-    # but you can stick to a release branch if preferred.
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
     home-manager = 
     {
@@ -17,13 +15,16 @@
     let
       system = "aarch64-linux";
       pkgs = nixpkgs.legacyPackages.${system};
+      
+      # Define the username in one place
+      username = "datalogger";
     in
     {
-      homeConfigurations."datalogger" = home-manager.lib.homeManagerConfiguration 
+      # Use the username variable as the attribute key for the configuration
+      homeConfigurations.${username} = home-manager.lib.homeManagerConfiguration 
       {
         inherit pkgs;
         
-        # Pass inputs if your home.nix needs them
         extraSpecialArgs = { inherit inputs; };
 
         modules = 
@@ -32,16 +33,13 @@
           {
             home = 
             {
-              # 'username' is correctly inferred from the
-              # `homeConfigurations."datalogger"` attribute key.
+              # Use the username variable for the mandatory option
+              # This 'inherit' is shorthand for 'username = username;'
+              inherit username; 
               
-              # 'homeDirectory' correctly defaults to "/home/${home.username}",
-              # which will be "/home/datalogger".
-
-              stateVersion = "25.05"; # Update this to match your install time
+              stateVersion = "25.05"; 
             };
 
-            # Let Home Manager install and manage itself.
             programs.home-manager.enable = true;
           }
         ];
