@@ -10,21 +10,34 @@
 #                   or zero if no command exited with a non-zero status.
 set -euo pipefail
 
-# --- [Step 0/8] Root User Check ---
+# --- [Step 0/9] Root User Check ---
 if [ "$(id -u)" -ne 0 ]; then
   echo "!!! This script must be run as root (with sudo). Exiting. !!!"
   exit 1
 fi
 
-echo "--- [Step 1/8] Starting Full System Update & Upgrade ---"
+echo "--- [Step 1/9] Starting Full System Update & Upgrade ---"
 # This updates the package lists and upgrades all installed packages.
-# This also updates the Raspberry Pi firmware to the latest stable version.
 apt update
 apt upgrade -y
 echo "--- System update complete. ---"
 echo ""
 
-echo "--- [Step 2/8] Cleaning up previous Nix install artifacts ---"
+echo "--- [Step 2/9] Applying Raspberry Pi EEPROM Firmware Updates ---"
+# This attempts to apply any pending bootloader/EEPROM firmware updates.
+# We first check if the 'rpi-eeprom-update' command exists.
+# This check prevents errors on older Pi models that don't have this tool.
+if command -v rpi-eeprom-update >/dev/null 2>&1; then
+  echo "Found rpi-eeprom-update. Applying any pending firmware updates..."
+  # The -a flag automatically applies any available updates
+  rpi-eeprom-update -a
+else
+  echo "rpi-eeprom-update tool not found. Skipping (this is normal for older Pi models)."
+fi
+echo "--- EEPROM update check complete. ---"
+echo ""
+
+echo "--- [Step 3/9] Cleaning up previous Nix install artifacts ---"
 # The installer will fail if old backup files exist from a previous
 # or failed installation. We remove them to ensure this script is
 # rerunnable and the installation is clean.
@@ -35,14 +48,14 @@ rm -f /etc/bash.bashrc.backup-before-nix
 echo "--- Old artifact cleanup complete. ---"
 echo ""
 
-echo "--- [Step 3/8] Installing Nix Package Manager (Daemon) ---"
+echo "--- [Step 4/9] Installing Nix Package Manager (Daemon) ---"
 # This runs the official installer script for Nix in daemon (multi-user) mode.
 # We pipe the curl download directly into sh.
 curl --proto '=https' --tlsv1.2 -L https://nixos.org/nix/install | sh -s -- --daemon
 echo "--- Nix installation complete. ---"
 echo ""
 
-echo "--- [Step 4/8] Configuring Nix for Flakes ---"
+echo "--- [Step 5/9] Configuring Nix for Flakes ---"
 # This enables experimental features like flakes, which are
 # essential for modern Nix-based dataloggers.
 NIX_CONF_FILE="/etc/nix/nix.conf"
@@ -63,7 +76,7 @@ fi
 echo ""
 
 
-echo "--- [Step 5/8] Enabling Automatic Security Updates ---"
+echo "--- [Step 6/9] Enabling Automatic Security Updates ---"
 # This installs and configures 'unattended-upgrades' to automatically
 # apply security updates in the background.
 apt install unattended-upgrades -y
@@ -73,7 +86,7 @@ echo "--- Automatic updates enabled. ---"
 echo ""
 
 
-echo "--- [Step 6/8] Enabling User Services on Boot (Linger) ---"
+echo "--- [Step 7/9] Enabling User Services on Boot (Linger) ---"
 # This allows systemd user services (like those Nix may create)
 # to start at boot, even before a user logs in.
 # We will automatically use the user who invoked 'sudo' ($SUDO_USER).
@@ -98,7 +111,8 @@ else
 fi
 echo ""
 
-echo "--- [Step 7/8] Setup Complete. Rebooting... ---"
+echo "--- [Step 8/9] Setup Complete. Rebooting... ---"
+# The final reboot is required to apply firmware updates and start services.
 echo "The system will reboot in 10 seconds. Press Ctrl+C to cancel."
 sleep 10
 reboot
