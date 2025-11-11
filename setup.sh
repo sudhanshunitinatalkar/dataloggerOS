@@ -141,12 +141,26 @@ echo ""
 echo "--- [Step 9/11] Enabling Hardware Watchdog ---"
 # This enables the hardware watchdog to automatically reboot the Pi if it freezes.
 # This is a critical feature for production dataloggers.
-if command -v raspi-config >/dev/null 2>&1; then
-  echo "Enabling hardware watchdog..."
-  raspi-config nonint do_watchdog 0
-  echo "--- Hardware watchdog enabled. ---"
+# We will do this by directly editing the config.txt file.
+
+CONFIG_FILE="/boot/firmware/config.txt"
+WATCHDOG_SETTING="dtparam=watchdog=on"
+
+# Check if the config file exists
+if [ -f "$CONFIG_FILE" ]; then
+    echo "Checking $CONFIG_FILE for watchdog setting..."
+    # Append the line only if it doesn't already exist
+    if ! grep -qF "$WATCHDOG_SETTING" "$CONFIG_FILE"; then
+        echo "Adding '$WATCHDOG_SETTING' to $CONFIG_FILE..."
+        # Add a newline just in case the file doesn't end with one
+        echo "" >> "$CONFIG_FILE"
+        echo "$WATCHDOG_SETTING" >> "$CONFIG_FILE"
+        echo "--- Hardware watchdog enabled (manual method). ---"
+    else
+        echo "--- Hardware watchdog already enabled in $CONFIG_FILE. Skipping. ---"
+    fi
 else
-  echo "--- raspi-config not found. Skipping hardware watchdog setup. ---"
+    echo "--- $CONFIG_FILE not found. Skipping hardware watchdog setup. ---"
 fi
 echo ""
 
