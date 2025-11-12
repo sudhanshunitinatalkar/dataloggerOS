@@ -2,33 +2,19 @@
     "api_endpoints": {
         "Main Cloud API": {
             "enabled": true,
-            "url": "https://api.your-cloud.com/v1/data",
-            "api_key": "YOUR_SECRET_API_KEY_HERE",
+            "url": "https://api.saicloud.in/api/device_data/site_NSA/SNHS2B09'",
+            "api_key": "4xCOWlaAAGwa8uBEwIhMfcKnqSrxFPizE",
             "timeout_seconds": 10
-        },
-        "Backup On-Prem Server": {
-            "enabled": false,
-            "url": "http://192.168.1.100:8080/ingest",
-            "api_key": "ANOTHER_KEY_IF_NEEDED",
-            "timeout_seconds": 5
         }
     },
     "mqtt_brokers": {
-        "Local HiveMQ Broker": {
-            "host": "192.168.1.50",
+        "PBR Research Cloud": {
+            "host": "http://cloud.pbrresearch.com/",
             "port": 1883,
-            "username": "datalogger",
-            "password": "PASSWORD_HERE",
-            "topic_prefix": "dataloggers/factory_floor",
+            "username": "316A20002",
+            "password": "316A20002",
+            "topic_prefix": "dataloggers/test",
             "enabled": true
-        },
-        "Cloud IoT Broker": {
-            "host": "mqtt.your-cloud.com",
-            "port": 8883,
-            "username": "iot_user",
-            "password": "PASSWORD_HERE",
-            "topic_prefix": "devices/data",
-            "enabled": false
         }
     }
 }

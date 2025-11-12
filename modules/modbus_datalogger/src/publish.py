@@ -4,6 +4,9 @@ import sys
 import requests  # Requires: pip install requests
 import paho.mqtt.client as mqtt  # Requires: pip install paho-mqtt
 import time
+import os  # <-- ADDED for path expansion
+from datetime import datetime # <-- ADDED for test block
+import database # <-- ADDED for test block (assumes database.py is in the same directory)
 
 # --- NEW CONFIG FILE PATHS ---
 # This file tells us WHERE the database is
@@ -39,6 +42,7 @@ def fetch_unpublished_data(db_path, limit=50):
     """
     records = []
     try:
+        # NOTE: db_path is now the expanded, absolute path
         with sqlite3.connect(db_path) as conn:
             cursor = conn.cursor()
             # Select rows where is_published is 0
@@ -61,6 +65,7 @@ def mark_data_as_published(db_path, record_ids):
         return True
         
     try:
+        # NOTE: db_path is now the expanded, absolute path
         with sqlite3.connect(db_path) as conn:
             cursor = conn.cursor()
             # Create a string of placeholders (?,?,?)
@@ -206,6 +211,9 @@ def main():
     if not db_path:
         print(f"FATAL ERROR: 'db_path' not found in '{MAIN_CONFIG_FILE}'", file=sys.stderr)
         sys.exit(1)
+        
+    # --- [FIX] Expand '~' to /home/user
+    db_path = os.path.expanduser(db_path)
 
     # 3. Fetch data from DB
     unpublished_data = fetch_unpublished_data(db_path, limit=50)
@@ -251,5 +259,76 @@ def main():
     print(f"--- Publisher script finished at {time.asctime()} ---")
 
 
+# --- [NEW] TEST BLOCK ---
 if __name__ == "__main__":
+    """
+    This test block sets up a clean environment to test the publisher.
+    It uses the 'database.py' file to create and populate a test database
+    according to the config files, then runs the main() publisher logic
+    and verifies that the data was marked as published.
+    """
+    
+    print("--- [TEST BLOCK] ---")
+    
+    # 1. Load the main config to find the test.db path
+    temp_config = load_config(MAIN_CONFIG_FILE)
+    if temp_config is None:
+        print("[TEST BLOCK] Failed to load main config. Exiting test.", file=sys.stderr)
+        sys.exit(1)
+        
+    db_path = temp_config.get("database", {}).get("db_path")
+    if not db_path:
+        print(f"[TEST BLOCK] 'db_path' not found in '{MAIN_CONFIG_FILE}'", file=sys.stderr)
+        sys.exit(1)
+        
+    # 2. IMPORTANT: Expand the path (e.g., '~' -> '/home/user')
+    db_path = os.path.expanduser(db_path)
+    
+    print(f"[TEST BLOCK] Using database file: {db_path}")
+
+    # 3. Clean up and initialize the database for a fresh test
+    if os.path.exists(db_path):
+        print(f"[TEST BLOCK] Removing old database: {db_path}")
+        try:
+            os.remove(db_path)
+        except OSError as e:
+            print(f"[TEST BLOCK] Error removing old database: {e}", file=sys.stderr)
+            sys.exit(1)
+    
+    print("[TEST BLOCK] Initializing new database...")
+    # Use the functions from 'database.py'
+    database.initDB(db_path)
+
+    # 4. Insert dummy data (that is UNPUBLISHED by default)
+    print("[TEST BLOCK] Inserting 5 dummy rows...")
+    for i in range(5):
+        ts = datetime.now().isoformat()
+        # Create a simple JSON string for the 'data' column
+        dummy_json_data = json.dumps({"test_sensor": "value_abc", "reading": i})
+        database.insertReading(db_path, ts, dummy_json_data)
+        
+    print("[TEST BLOCK] Dummy data inserted.")
+    print("\n[TEST BLOCK] --- Running main() publish logic... ---")
+    
+    # 5. Run the main function
     main()
+    
+    print("[TEST BLOCK] --- Main() logic complete. ---")
+
+    # 6. Verify the results
+    print("[TEST BLOCK] Checking database to see if rows were marked as published...")
+    try:
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM readings WHERE is_published = 0")
+            unpublished_count = cursor.fetchone()[0]
+            
+            if unpublished_count == 0:
+                print("[TEST BLOCK] \033[92mSUCCESS:\033[0m 0 unpublished rows found. Data was marked as published.")
+            else:
+                print(f"[TEST BLOCK] \033[91mFAILED:\033[0m {unpublished_count} unpublished rows remain. Publish must have failed.")
+                print("[TEST BLOCK] (This is expected if API/MQTT endpoints are disabled or failed to connect)")
+    except sqlite3.Error as e:
+        print(f"[TEST BLOCK] Error checking final db state: {e}", file=sys.stderr)
+
+    print("--- [TEST BLOCK] Finished. ---")
