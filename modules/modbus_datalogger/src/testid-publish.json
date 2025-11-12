@@ -10,7 +10,7 @@
     },
     "mqtt_brokers": {
         "PBR Research Cloud": {
-            "host": "http://cloud.pbrresearch.com/",
+            "host": "http://cloud.pbrresearch.com",
             "port": 1883,
             "username": "316A20002",
             "password": "316A20002",
