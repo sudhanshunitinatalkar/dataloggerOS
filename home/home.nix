@@ -22,7 +22,7 @@
 
 
     python312
-    python312ckages.pymodbus
+    python312Packages.pymodbus
     python312Packages.requests
     python312Packages.paho-mqtt
     python312Packages.requests
