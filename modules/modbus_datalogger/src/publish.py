@@ -285,29 +285,11 @@ if __name__ == "__main__":
     db_path = os.path.expanduser(db_path)
     
     print(f"[TEST BLOCK] Using database file: {db_path}")
-
-    # 3. Clean up and initialize the database for a fresh test
-    if os.path.exists(db_path):
-        print(f"[TEST BLOCK] Removing old database: {db_path}")
-        try:
-            os.remove(db_path)
-        except OSError as e:
-            print(f"[TEST BLOCK] Error removing old database: {e}", file=sys.stderr)
-            sys.exit(1)
     
     print("[TEST BLOCK] Initializing new database...")
     # Use the functions from 'database.py'
     database.initDB(db_path)
-
-    # 4. Insert dummy data (that is UNPUBLISHED by default)
-    print("[TEST BLOCK] Inserting 5 dummy rows...")
-    for i in range(5):
-        ts = datetime.now().isoformat()
-        # Create a simple JSON string for the 'data' column
-        dummy_json_data = json.dumps({"test_sensor": "value_abc", "reading": i})
-        database.insertReading(db_path, ts, dummy_json_data)
         
-    print("[TEST BLOCK] Dummy data inserted.")
     print("\n[TEST BLOCK] --- Running main() publish logic... ---")
     
     # 5. Run the main function
