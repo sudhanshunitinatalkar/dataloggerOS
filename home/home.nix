@@ -1,36 +1,32 @@
 { config, pkgs, ... }:
 
+let
+  # 1. Define your custom Python environment here
+  datalogger = pkgs.python312.withPackages (ps: [
+    # List all python packages you need
+    ps.requests
+    ps.paho-mqtt
+    ps.pymodbus
+  ]);
+in
 {
-  # Essential Packages for an IoT Device
-  home.packages = with pkgs; 
-  [
-    # System Utilities
-    htop      # Interactive process viewer
-    curl      # Data transfer tool
-    wget      # File retrieval
-
-    # Development/Debugging
-    git       # Version control
-
+  # 2. Add your other packages...
+  home.packages = with pkgs; [
+    htop
+    curl
+    wget
+    git
     vim
     util-linux
     gptfdisk
     fastfetch
     sops
-
     cloudflared
 
-
-    python312
-    python312Packages.pymodbus
-    python312Packages.requests
-    python312Packages.paho-mqtt
-    python312Packages.requests
-
-
+    # 3. ...and add your *single* custom Python environment
+    datalogger
   ];
 
   # Let Home Manager manage itself
   programs.home-manager.enable = true;
-
 }
