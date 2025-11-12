@@ -1,0 +1,26 @@
+{
+        "temperature_sensor": {
+            "slave_id": 1,
+            "function_code": 3,
+            "mem_address": 4001,
+            "number_of_bytes": 2,
+            "data_type": "int",
+            "scaling_factor": 0.1
+        },
+        "pressure_reading": {
+            "slave_id": 1,
+            "function_code": 3,
+            "mem_address": 4003,
+            "number_of_bytes": 4,
+            "data_type": "float",
+            "scaling_factor": 0.01
+        },
+        "main_valve_status": {
+            "slave_id": 2,
+            "function_code": 1,
+            "mem_address": 1001,
+            "number_of_bytes": 1,
+            "data_type": "bool",
+            "scaling_factor": 1.0
+        }
+    }
