@@ -25,11 +25,8 @@ echo ""
 
 echo "--- [Step 2/11] Applying Raspberry Pi EEPROM Firmware Updates ---"
 # This attempts to apply any pending bootloader/EEPROM firmware updates.
-# We first check if the 'rpi-eeprom-update' command exists.
-# This check prevents errors on older Pi models that don't have this tool.
 if command -v rpi-eeprom-update >/dev/null 2>&1; then
   echo "Found rpi-eeprom-update. Applying any pending firmware updates..."
-  # The -a flag automatically applies any available updates
   rpi-eeprom-update -a
 else
   echo "rpi-eeprom-update tool not found. Skipping (this is normal for older Pi models)."
@@ -38,9 +35,6 @@ echo "--- EEPROM update check complete. ---"
 echo ""
 
 echo "--- [Step 3/11] Cleaning up previous Nix install artifacts ---"
-# The installer will fail if old backup files exist from a previous
-# or failed installation. We remove them to ensure this script is
-# rerunnable and the installation is clean.
 rm -f /etc/bashrc.backup-before-nix
 rm -f /etc/profile.d/nix.sh.backup-before-nix
 rm -f /etc/zshrc.backup-before-nix
@@ -49,30 +43,22 @@ echo "--- Old artifact cleanup complete. ---"
 echo ""
 
 echo "--- [Step 4/11] Installing Nix Package Manager (Daemon) ---"
-# Check if Nix is already installed by looking for the /nix directory
 if [ -d "/nix" ]; then
     echo "The /nix directory already exists."
     echo "--- Nix appears to be already installed. Skipping installation. ---"
 else
     echo "No existing /nix directory found. Starting new installation..."
-    # This runs the official installer script for Nix in daemon (multi-user) mode.
-    # We pipe the curl download directly into sh.
     curl --proto '=https' --tlsv1.2 -L https://nixos.org/nix/install | sh -s -- --daemon
     echo "--- Nix installation complete. ---"
 fi
 echo ""
 
 echo "--- [Step 5/11] Configuring Nix for Flakes ---"
-# This enables experimental features like flakes, which are
-# essential for modern Nix-based dataloggers.
 NIX_CONF_FILE="/etc/nix/nix.conf"
 NIX_CONF_LINE="experimental-features = nix-command flakes"
-
-# Ensure the directory and file exist
 mkdir -p /etc/nix
 touch "$NIX_CONF_FILE"
 
-# Append the line only if it doesn't already exist
 if ! grep -qF "$NIX_CONF_LINE" "$NIX_CONF_FILE"; then
     echo "Adding '$NIX_CONF_LINE' to $NIX_CONF_FILE..."
     echo "$NIX_CONF_LINE" >> "$NIX_CONF_FILE"
@@ -82,55 +68,33 @@ else
 fi
 echo ""
 
-
 echo "--- [Step 6/11] Enabling Automatic Security Updates ---"
-# This installs and configures 'unattended-upgrades' to automatically
-# apply security updates in the background.
 apt install unattended-upgrades -y
-# Set DEBIAN_FRONTEND=noninteractive to prevent any TUI confirmation
 DEBIAN_FRONTEND=noninteractive dpkg-reconfigure -plow unattended-upgrades
 echo "--- Automatic updates enabled. ---"
 echo ""
 
-
 echo "--- [Step 7/11] Enabling User Services on Boot (Linger) ---"
-# This allows systemd user services (like those Nix may create)
-# to start at boot, even before a user logs in.
-# We will automatically use the user who invoked 'sudo' ($SUDO_USER).
-
-# Check if $SUDO_USER is set and not empty
-if [ -z "$SUDO_USER" ]; then
+if [ -z "${SUDO_USER:-}" ]; then
     echo "!!! Could not find \$SUDO_USER. Skipping linger step. !!!"
-    echo "Please run 'sudo loginctl enable-linger <username>' manually after reboot."
-# Check if the user is 'root' - we don't want to linger root.
-# FIX 1: Changed '==' to '=' for POSIX compatibility with sh/dash
 elif [ "$SUDO_USER" = "root" ]; then
-    echo "!!! Script was run by root directly, not via sudo. Skipping linger step. !!!"
-    echo "Please run 'sudo loginctl enable-linger <username>' manually after reboot."
-# Check if the user actually exists (pre-flight check)
+    echo "!!! Script was run by root directly. Skipping linger step. !!!"
 elif id -u "$SUDO_USER" >/dev/null 2>&1; then
     echo "--- Automatically enabling linger for user '$SUDO_USER'... ---"
-    # FIX 2: Changed 'logctl' to 'loginctl'
     loginctl enable-linger "$SUDO_USER"
     echo "--- User services (linger) enabled for '$SUDO_USER'. ---"
 else
-    # This case should rarely happen if sudo is set up correctly
     echo "!!! User '$SUDO_USER' does not seem to exist. Skipping linger step. !!!"
-    echo "Please run 'sudo loginctl enable-linger <username>' manually after reboot."
 fi
 echo ""
 
 echo "--- [Step 8/11] Enabling Hardware Datalogger Interfaces ---"
-# We need to enable hardware interfaces for sensors.
-# We use raspi-config's non-interactive 'nonint' mode.
-# 0 = enable, 1 = disable
 if command -v raspi-config >/dev/null 2>&1; then
   echo "Enabling I2C..."
   raspi-config nonint do_i2c 0
   echo "Enabling SPI..."
   raspi-config nonint do_spi 0
   echo "Enabling Serial Hardware (disabling serial console)..."
-  # This enables serial for hardware (like GPS) and disables the login shell
   raspi-config nonint do_serial_hw 0
   echo "--- Hardware interfaces enabled. ---"
 else
@@ -138,61 +102,55 @@ else
 fi
 echo ""
 
-echo "--- [Step 9/11] Enabling Hardware Watchdog ---"
-# This enables the hardware watchdog to automatically reboot the Pi if it freezes.
-# This is a critical feature for production dataloggers.
-# We will do this by directly editing the config.txt file.
-
+echo "--- [Step 9/11] Configuring /boot/firmware/config.txt ---"
+# This step handles hardware watchdog, UART enablement, and Bluetooth disabling.
 CONFIG_FILE="/boot/firmware/config.txt"
-WATCHDOG_SETTING="dtparam=watchdog=on"
 
-# Check if the config file exists
+# List of settings to apply
+SETTINGS=(
+    "dtparam=watchdog=on"
+    "enable_uart=1"
+    "dtoverlay=disable-bt"
+)
+
 if [ -f "$CONFIG_FILE" ]; then
-    echo "Checking $CONFIG_FILE for watchdog setting..."
-    # Append the line only if it doesn't already exist
-    if ! grep -qF "$WATCHDOG_SETTING" "$CONFIG_FILE"; then
-        echo "Adding '$WATCHDOG_SETTING' to $CONFIG_FILE..."
-        # Add a newline just in case the file doesn't end with one
-        echo "" >> "$CONFIG_FILE"
-        echo "$WATCHDOG_SETTING" >> "$CONFIG_FILE"
-        echo "--- Hardware watchdog enabled (manual method). ---"
-    else
-        echo "--- Hardware watchdog already enabled in $CONFIG_FILE. Skipping. ---"
-    fi
+    echo "Backing up config.txt to config.txt.bak..."
+    cp "$CONFIG_FILE" "${CONFIG_FILE}.bak"
+
+    # Ensure there is a newline at the end of the file before we start appending
+    # This prevents appending to the end of an existing line
+    sed -i -e '$a\' "$CONFIG_FILE"
+
+    for setting in "${SETTINGS[@]}"; do
+        if ! grep -qF "$setting" "$CONFIG_FILE"; then
+            echo "Adding '$setting' to $CONFIG_FILE..."
+            echo "$setting" >> "$CONFIG_FILE"
+        else
+            echo "--- '$setting' already exists. Skipping. ---"
+        fi
+    done
+    echo "--- Hardware configuration updated. ---"
 else
-    echo "--- $CONFIG_FILE not found. Skipping hardware watchdog setup. ---"
+    echo "--- $CONFIG_FILE not found. Skipping config.txt setup. ---"
 fi
 echo ""
 
-# --- [NEW STEP] ---
 echo "--- [Step 10/11] Creating Datalogger Data Directory ---"
-# This creates the persistent data directory and assigns ownership
-# to the non-root user who will run the datalogger application.
 DATALOGGER_DIR="/var/lib/datalogger"
 
-# We re-use the logic from Step 7 to find the correct user
-if [ -z "$SUDO_USER" ]; then
-    echo "!!! Could not find \$SUDO_USER. Skipping data directory creation. !!!"
-    echo "Please run 'sudo mkdir -p $DATALOGGER_DIR && sudo chown <user>:<user> $DATALOGGER_DIR' manually."
-elif [ "$SUDO_USER" = "root" ]; then
-    echo "!!! Script was run by root directly, not via sudo. Skipping data directory creation. !!!"
-    echo "Please run 'sudo mkdir -p $DATALOGGER_DIR && sudo chown <user>:<user> $DATALOGGER_DIR' manually."
+if [ -z "${SUDO_USER:-}" ] || [ "$SUDO_USER" = "root" ]; then
+    echo "!!! Cannot determine correct user. Skipping data directory creation. !!!"
 elif id -u "$SUDO_USER" >/dev/null 2>&1; then
     echo "--- Creating directory '$DATALOGGER_DIR' for user '$SUDO_USER'... ---"
     mkdir -p "$DATALOGGER_DIR"
-    # Set the owner and group to be the sudo user
     chown "$SUDO_USER":"$SUDO_USER" "$DATALOGGER_DIR"
     echo "--- Datalogger data directory created and permissions set. ---"
 else
-    echo "!!! User '$SUDO_USER' does not seem to exist. Skipping data directory creation. !!!"
-    echo "Please run 'sudo mkdir -p $DATALOGGER_DIR && sudo chown <user>:<user> $DATALOGGER_DIR' manually."
+    echo "!!! User '$SUDO_USER' does not exist. Skipping. !!!"
 fi
 echo ""
-# --- [END NEW STEP] ---
-
 
 echo "--- [Step 11/11] Setup Complete. Rebooting... ---"
-# The final reboot is required to apply firmware, hardware, and service changes.
 echo "The system will reboot in 10 seconds. Press Ctrl+C to cancel."
 sleep 10
 reboot
