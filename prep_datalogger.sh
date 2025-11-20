@@ -93,18 +93,15 @@ else
 fi
 echo ""
 
-# === NEW STEP: Add the invoking user to dialout group for serial port access ===
+# === MODIFIED STEP: Brute force approach ===
 echo "--- [Step 8.5/11] Adding user to dialout group (serial port access) ---"
 if [ -z "${SUDO_USER:-}" ] || [ "$SUDO_USER" = "root" ]; then
     echo "!!! Cannot determine the original user. Skipping dialout group addition. !!!"
 elif id -u "$SUDO_USER" >/dev/null 2>&1; then
-    if groups "$SUDO_USER" | grep -q '\bdialout\b'; then
-        echo "--- User '$SUDO_USER' is already in the dialout group. ---"
-    else
-        echo "--- Adding user '$SUDO_USER' to the dialout group... ---"
-        usermod -a -G dialout "$SUDO_USER"
-        echo "--- User '$SUDO_USER' added to dialout. They will have serial access after next login/reboot. ---"
-    fi
+    echo "--- Ensuring user '$SUDO_USER' is in the dialout group... ---"
+    # We run this unconditionally. It is safe to run even if the user is already in the group.
+    usermod -a -G dialout "$SUDO_USER"
+    echo "--- User '$SUDO_USER' permission set. (Effective after reboot/logout) ---"
 else
     echo "!!! User '$SUDO_USER' does not exist. Skipping dialout group step. !!!"
 fi
