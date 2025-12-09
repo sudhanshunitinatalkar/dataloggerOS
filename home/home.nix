@@ -1,6 +1,7 @@
 { config, pkgs, ... }:
 
 {
+  news.display = "silent";
   # 2. Add your other packages...
   home.packages = with pkgs; [
     htop
