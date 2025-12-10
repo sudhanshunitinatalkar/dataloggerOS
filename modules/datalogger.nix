@@ -6,16 +6,27 @@ let
   githubUser = "sudhanshunitinatalkar";
   githubRepo = "datalog-bin"; 
 
-  # [FIX] We pass 'unsafeDiscardReferences = true' directly inside fetchurl.
-  # This forces Nix to ignore the Python store paths embedded in the binaries.
-  fetchServiceBin = name: hash: pkgs.fetchurl {
-    url = "https://github.com/${githubUser}/${githubRepo}/releases/download/${releaseVersion}/${name}";
-    sha256 = hash;
+  # [FIX] We use 'pkgs.runCommand' instead of 'fetchurl'.
+  # This gives us full control to set 'unsafeDiscardReferences = true',
+  # which forces Nix to ignore the Python paths inside your compiled binaries.
+  fetchServiceBin = name: hash: pkgs.runCommand name {
+    # Fixed Output Derivation settings (allows network access during build)
+    outputHashMode = "flat";
+    outputHashAlgo = "sha256";
+    outputHash = hash;
+    
+    # CRITICAL: Tell Nix to ignore any /nix/store paths inside the binary
     unsafeDiscardReferences = true;
-  };
+    
+    # We need curl to download the file
+    nativeBuildInputs = [ pkgs.curl ];
+  } ''
+    # Download the file (-L follows redirects, -k skips SSL cert check since we check the hash)
+    curl -L -k "https://github.com/${githubUser}/${githubRepo}/releases/download/${releaseVersion}/${name}" -o $out
+  '';
 
   # --- 2. BINARY DEFINITIONS ---
-  # (These are the hashes you provided)
+  # (Hashes from your GitHub release)
   binaries = {
     configure  = fetchServiceBin "configure"  "cf8fe1fdfde3c70ef430cbeba6d4217d83279184586235489d813470c2269a9b";
     cpcb       = fetchServiceBin "cpcb"       "2674172bcbe42ae23511bb41c49b646c8792271871216503c80631310185975d";
