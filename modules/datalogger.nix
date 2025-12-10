@@ -6,13 +6,17 @@ let
   githubUser = "sudhanshunitinatalkar";
   githubRepo = "datalog-bin"; 
 
-  fetchServiceBin = name: hash: pkgs.fetchurl {
+  # [FIX] We use .overrideAttrs to set 'unsafeDiscardReferences'.
+  # This tells Nix: "I know this file contains weird paths from another machine, ignore them."
+  fetchServiceBin = name: hash: (pkgs.fetchurl {
     url = "https://github.com/${githubUser}/${githubRepo}/releases/download/${releaseVersion}/${name}";
     sha256 = hash;
-  };
+  }).overrideAttrs (_: {
+    unsafeDiscardReferences = true;
+  });
 
   # --- 2. BINARY DEFINITIONS ---
-  # [IMPORTANT] Keep your hashes here
+  # (Hashes from your screenshot)
   binaries = {
     configure  = fetchServiceBin "configure"  "cf8fe1fdfde3c70ef430cbeba6d4217d83279184586235489d813470c2269a9b";
     cpcb       = fetchServiceBin "cpcb"       "2674172bcbe42ae23511bb41c49b646c8792271871216503c80631310185975d";
@@ -29,8 +33,6 @@ let
   tmpDir  = "${baseDir}/tmp";
 
   # --- 4. SERVICE GENERATOR ---
-  # [FIX] Added "_:" to ignore the second argument (the fetchurl derivation)
-  # lib.mapAttrs passes (key value), but we only need the key (name) here.
   mkService = name: _: {
     Unit = {
       Description = "Datalogger Service: ${name}";
@@ -44,7 +46,6 @@ let
 
       Restart = "always";
       RestartSec = "5s";
-      
       StartLimitIntervalSec = "60";
       StartLimitBurst = "5";
       
