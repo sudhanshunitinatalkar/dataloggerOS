@@ -1,101 +1,130 @@
 { config, pkgs, lib, ... }:
 
 let
-  # --- 1. RELEASE CONFIGURATION ---
-  releaseVersion = "v0.0.1";
-  githubUser = "sudhanshunitinatalkar";
-  githubRepo = "datalog-bin"; 
-
-  # --- 2. THE PACKAGE BUILDER ---
-  # Downloads the binary and nukes references to foreign store paths.
-  fetchAndNuke = name: hash: pkgs.runCommand name {
-    outputHashMode = "flat";
-    outputHashAlgo = "sha256";
-    outputHash = hash;
-    
-    nativeBuildInputs = [ pkgs.curl pkgs.nukeReferences ];
-  } ''
-    curl -L -k "https://github.com/${githubUser}/${githubRepo}/releases/download/${releaseVersion}/${name}" -o $out
-    nuke-refs $out
-  '';
-
-  # --- 3. BINARY DEFINITIONS ---
-  # (Using the 'nuked' hashes you generated earlier)
-  binaries = {
-    configure  = fetchAndNuke "configure"  "0avbaayd0a3aidp465ngl0xnb1x473ylspx09j6c5xwx10wqf163";
-    cpcb       = fetchAndNuke "cpcb"       "1k3xb4cww3hlilwvgljcba9d05n31x9qi8m04vh89l6p8pypbpay";
-    data       = fetchAndNuke "data"       "1gzijag2sihwp104hczjsc3p900yy564shm9bjws89cxn982h3ym";
-    datalogger = fetchAndNuke "datalogger" "0hlv1rlm5clr8j93jmrbwvlshz9iw8knfva49b7l3m8cb2a2yq73";
-    display    = fetchAndNuke "display"    "0m82xhj0aw7p2m8sjdhdcwwxmy7z9ina6zak9d10mmkiwi2s5hf3";
-    network    = fetchAndNuke "network"    "0ycnkgqi5ik2xr3gjvik7cxaxfbvykz997h2a4ma5w011vlbkb49";
-    saicloud   = fetchAndNuke "saicloud"   "0wwjpfp7cc56l71cxzmb8mjbky9k21gd4vajw56khypzmswiv9ss";
+  # --- Configuration ---
+  repoUrl = "https://github.com/sudhanshunitinatalkar/datalogger.git";
+  repoDir = "${config.home.homeDirectory}/datalogger";
+  
+  # List of Python scripts to run as services
+  # (Maps service name to source file)
+  scripts = {
+    configure = "src/configure.py";
+    cpcb      = "src/cpcb.py";
+    data      = "src/data.py";
+    datalogger = "src/datalogger.py"; # Main logic
+    display   = "src/display.py";
+    network   = "src/network.py";
+    saicloud  = "src/saicloud.py";
   };
 
-  # --- 4. DIRECTORY SETUP ---
-  baseDir = "${config.home.homeDirectory}/datalogger-bin";
-  binDir  = "${baseDir}/bin";
-  tmpDir  = "${baseDir}/tmp";
-
-  # --- 5. SERVICE GENERATOR ---
-  mkService = name: _: {
+  # Helper function to generate a standard Python service
+  mkDataloggerService = name: scriptPath: {
     Unit = {
       Description = "Datalogger Service: ${name}";
-      After = [ "network-online.target" ];
+      After = [ "network-online.target" "datalogger-repo-sync.service" ];
       Wants = [ "network-online.target" ];
+      StartLimitIntervalSec = 0; # Disable rate limiting for infinite retries
     };
 
     Service = {
-      ExecStart = "${binDir}/${name}";
-      Environment = "TMPDIR=${tmpDir}";
-
+      Type = "simple";
+      WorkingDirectory = repoDir;
+      
+      # Use 'nix develop' to run within the Flake's environment defined in the repo
+      # We use --command to execute the script using the flake's python environment
+      ExecStart = "${pkgs.nix}/bin/nix develop ${repoDir} --command python3 ${scriptPath}";
+      
       Restart = "always";
       RestartSec = "5s";
-      StartLimitIntervalSec = "60";
-      StartLimitBurst = "5";
       
-      StandardOutput = "journal";
-      StandardError = "journal";
+      # Environment variables if needed
+      Environment = "HOME=${config.home.homeDirectory}";
     };
 
-    Install = { WantedBy = [ "default.target" ]; };
+    Install = {
+      WantedBy = [ "default.target" ];
+    };
   };
 
 in
 {
-  # --- 6. ACTIVATION SCRIPT ---
-  home.activation.installDataloggerBinaries = lib.hm.dag.entryAfter ["writeBoundary"] ''
-    echo "--- [Datalogger] Installing Binaries ---"
+  # 1. ensure git is available
+  home.packages = [ pkgs.git ];
+
+  # 2. Define the Services
+  systemd.user.services = 
+    # Generate all python services from the list
+    (lib.mapAttrs (name: path: mkDataloggerService name path) scripts) 
     
-    mkdir -p "${binDir}"
-    mkdir -p "${tmpDir}"
+    # Add the Special Sync Service (Manually defined)
+    // {
+      datalogger-repo-sync = {
+        Unit = {
+          Description = "Datalogger Repository Auto-Sync";
+          After = [ "network-online.target" ];
+          Wants = [ "network-online.target" ];
+        };
 
-    INTERPRETER="$(cat ${pkgs.stdenv.cc}/nix-support/dynamic-linker)"
-    echo "Using System Loader: $INTERPRETER"
+        Service = {
+          Type = "oneshot";
+          
+          # The Sync Script
+          # 1. Clones if missing
+          # 2. Fetches updates
+          # 3. If updates found -> Pulls & Restarts all python services
+          ExecStart = pkgs.writeShellScript "datalogger-sync" ''
+            export PATH=${pkgs.git}/bin:${pkgs.systemd}/bin:$PATH
+            
+            TARGET="${repoDir}"
+            REPO="${repoUrl}"
+            SERVICES="configure cpcb data datalogger display network saicloud"
 
-    install_and_patch() {
-      NAME=$1
-      SRC=$2
-      DEST="${binDir}/$NAME"
+            # 1. Ensure Repo Exists
+            if [ ! -d "$TARGET/.git" ]; then
+              echo "Cloning datalogger repo..."
+              mkdir -p "$TARGET"
+              git clone "$REPO" "$TARGET"
+            fi
 
-      if [ ! -f "$DEST" ] || [ "$(sha256sum $DEST | cut -d' ' -f1)" != "$(sha256sum $SRC | cut -d' ' -f1)" ]; then
-        echo "--> Updating $NAME..."
-        rm -f "$DEST"
-        cp "$SRC" "$DEST"
-        
-        # [FIX] Explicitly add WRITE permissions so patchelf works
-        chmod u+w "$DEST"
-        chmod +x "$DEST"
-        
-        ${pkgs.patchelf}/bin/patchelf --set-interpreter "$INTERPRETER" "$DEST"
-        echo "    (Patched successfully)"
-      else
-        echo "--> $NAME is up to date."
-      fi
-    }
+            cd "$TARGET"
 
-    ${lib.concatStringsSep "\n" (lib.mapAttrsToList (name: src: "install_and_patch ${name} ${src}") binaries)}
-  '';
+            # 2. Fetch & Check for Updates
+            echo "Checking for updates..."
+            git remote update
 
-  # --- 7. REGISTER SERVICES ---
-  systemd.user.services = lib.mapAttrs mkService binaries;
+            LOCAL=$(git rev-parse @)
+            REMOTE=$(git rev-parse @{u})
+
+            if [ "$LOCAL" != "$REMOTE" ]; then
+              echo "Updates found! Pulling changes..."
+              git pull
+              
+              echo "Restarting Datalogger Services..."
+              # Loop through services and restart them
+              for svc in $SERVICES; do
+                systemctl --user restart "$svc"
+              done
+              
+              echo "Update Complete."
+            else
+              echo "Repo is up to date."
+            fi
+          '';
+        };
+      };
+    };
+
+  # 3. Define the Timer (Runs the Sync Service every 5 minutes)
+  systemd.user.timers.datalogger-repo-sync = {
+    Unit = {
+      Description = "Run Datalogger Sync every 5 minutes";
+    };
+    Timer = {
+      OnBootSec = "2m";
+      OnUnitActiveSec = "5m";
+    };
+    Install = {
+      WantedBy = [ "timers.target" ];
+    };
+  };
 }

@@ -28,6 +28,7 @@
         modules = 
         [
           ./home/home.nix
+          ./modules/datalogger.nix
           {
             home = 
             {
