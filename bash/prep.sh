@@ -4,19 +4,19 @@
 #
 set -euo pipefail
 
-# --- [Step 0/12] Root User Check ---
+# --- [Step 0/13] Root User Check ---
 if [ "$(id -u)" -ne 0 ]; then
   echo "!!! This script must be run as root (with sudo). Exiting. !!!"
   exit 1
 fi
 
-echo "--- [Step 1/12] Starting Full System Update & Upgrade ---"
+echo "--- [Step 1/13] Starting Full System Update & Upgrade ---"
 apt update
 apt upgrade -y
 echo "--- System update complete. ---"
 echo ""
 
-echo "--- [Step 2/12] Applying Raspberry Pi EEPROM Firmware Updates ---"
+echo "--- [Step 2/13] Applying Raspberry Pi EEPROM Firmware Updates ---"
 if command -v rpi-eeprom-update >/dev/null 2>&1; then
   echo "Found rpi-eeprom-update. Applying any pending firmware updates..."
   rpi-eeprom-update -a
@@ -26,7 +26,7 @@ fi
 echo "--- EEPROM update check complete. ---"
 echo ""
 
-echo "--- [Step 3/12] Cleaning up previous Nix install artifacts ---"
+echo "--- [Step 3/13] Cleaning up previous Nix install artifacts ---"
 rm -f /etc/bashrc.backup-before-nix
 rm -f /etc/profile.d/nix.sh.backup-before-nix
 rm -f /etc/zshrc.backup-before-nix
@@ -34,7 +34,7 @@ rm -f /etc/bash.bashrc.backup-before-nix
 echo "--- Old artifact cleanup complete. ---"
 echo ""
 
-echo "--- [Step 4/12] Installing Nix Package Manager (Daemon) ---"
+echo "--- [Step 4/13] Installing Nix Package Manager (Daemon) ---"
 if [ -d "/nix" ]; then
     echo "The /nix directory already exists."
     echo "--- Nix appears to be already installed. Skipping installation. ---"
@@ -45,7 +45,7 @@ else
 fi
 echo ""
 
-echo "--- [Step 5/12] Configuring Nix for Flakes ---"
+echo "--- [Step 5/13] Configuring Nix for Flakes ---"
 NIX_CONF_FILE="/etc/nix/nix.conf"
 NIX_CONF_LINE="experimental-features = nix-command flakes"
 mkdir -p /etc/nix
@@ -59,13 +59,13 @@ else
 fi
 echo ""
 
-echo "--- [Step 6/12] Enabling Automatic Security Updates ---"
+echo "--- [Step 6/13] Enabling Automatic Security Updates ---"
 apt install unattended-upgrades -y
 DEBIAN_FRONTEND=noninteractive dpkg-reconfigure -plow unattended-upgrades
 echo "--- Automatic updates enabled. ---"
 echo ""
 
-echo "--- [Step 7/12] Enabling User Services on Boot (Linger) ---"
+echo "--- [Step 7/13] Enabling User Services on Boot (Linger) ---"
 if [ -z "${SUDO_USER:-}" ]; then
     echo "!!! Could not find \$SUDO_USER. Skipping linger step. !!!"
 elif [ "$SUDO_USER" = "root" ]; then
@@ -79,7 +79,7 @@ else
 fi
 echo ""
 
-echo "--- [Step 8/12] Enabling Hardware Datalogger Interfaces ---"
+echo "--- [Step 8/13] Enabling Hardware Datalogger Interfaces ---"
 if command -v raspi-config >/dev/null 2>&1; then
   echo "Enabling I2C..."
   raspi-config nonint do_i2c 0
@@ -93,7 +93,7 @@ else
 fi
 echo ""
 
-echo "--- [Step 8.5/12] Adding user to dialout group (serial port access) ---"
+echo "--- [Step 8.5/13] Adding user to dialout group (serial port access) ---"
 if [ -z "${SUDO_USER:-}" ] || [ "$SUDO_USER" = "root" ]; then
     echo "!!! Cannot determine the original user. Skipping dialout group addition. !!!"
 elif id -u "$SUDO_USER" >/dev/null 2>&1; then
@@ -105,7 +105,7 @@ else
 fi
 echo ""
 
-echo "--- [Step 9/12] Configuring /boot/firmware/config.txt ---"
+echo "--- [Step 9/13] Configuring /boot/firmware/config.txt ---"
 CONFIG_FILE="/boot/firmware/config.txt"
 SETTINGS=(
     "dtparam=watchdog=on"
@@ -131,7 +131,7 @@ else
 fi
 echo ""
 
-echo "--- [Step 10/12] Creating Datalogger Data Directory ---"
+echo "--- [Step 10/13] Creating Datalogger Data Directory ---"
 DATALOGGER_DIR="/var/lib/datalogger"
 if [ -z "${SUDO_USER:-}" ] || [ "$SUDO_USER" = "root" ]; then
     echo "!!! Cannot determine correct user. Skipping data directory creation. !!!"
@@ -145,18 +145,14 @@ else
 fi
 echo ""
 
-# === NEW STEP: Automatic Login ===
-echo "--- [Step 11/12] Configuring Automatic Console Login ---"
+echo "--- [Step 11/13] Configuring Automatic Console Login ---"
 if [ -z "${SUDO_USER:-}" ] || [ "$SUDO_USER" = "root" ]; then
     echo "!!! Cannot determine correct user for auto-login. Skipping. !!!"
 elif id -u "$SUDO_USER" >/dev/null 2>&1; then
     echo "--- Configuring systemd for automatic console login for user '$SUDO_USER'... ---"
     
-    # Create the override directory for tty1
     mkdir -p /etc/systemd/system/getty@tty1.service.d
     
-    # Create/Overwrite the autologin.conf file
-    # This instructs agetty to login the specific user without prompting for password
     cat > /etc/systemd/system/getty@tty1.service.d/autologin.conf <<EOF
 [Service]
 ExecStart=
@@ -169,7 +165,30 @@ else
 fi
 echo ""
 
-echo "--- [Step 12/12] Setup Complete. Rebooting... ---"
+# === NEW STEP: Install & Enable Service ===
+echo "--- [Step 12/13] Installing Datalogger Service ---"
+# We assume the service file is in the dataloggerOS folder in the user's home
+SERVICE_SOURCE="/home/$SUDO_USER/dataloggerOS/datalogger.service"
+SERVICE_DEST="/etc/systemd/system/datalogger.service"
+
+if [ -f "$SERVICE_SOURCE" ]; then
+    echo "Found service file at $SERVICE_SOURCE"
+    echo "Copying to $SERVICE_DEST..."
+    cp "$SERVICE_SOURCE" "$SERVICE_DEST"
+    
+    echo "Reloading systemd daemon..."
+    systemctl daemon-reload
+    
+    echo "Enabling datalogger.service..."
+    systemctl enable datalogger.service
+    
+    echo "--- Datalogger Service installed and enabled. ---"
+else
+    echo "!!! WARNING: Could not find $SERVICE_SOURCE. Service NOT installed. !!!"
+fi
+echo ""
+
+echo "--- [Step 13/13] Setup Complete. Rebooting... ---"
 echo "The system will reboot in 10 seconds. Press Ctrl+C to cancel."
 sleep 10
 reboot
