@@ -1,0 +1,31 @@
+[Unit]
+Description=Industrial Datalogger Supervisor (Nix Environment)
+# Wait for genuine internet connection before starting (for Git pull)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Service Configuration
+Type=simple
+User=datalog
+WorkingDirectory=/home/datalog/dataloggerOS
+ExecStart=/bin/bash /home/datalog/dataloggerOS/datalogger_run.sh
+
+# Restart Policy (Industrial Robustness)
+Restart=always
+RestartSec=10
+
+# ENVIRONMENT VARIABLES
+# 1. Force HOME so Nix knows where to find caches/configs
+Environment="HOME=/home/datalog"
+
+# 2. INJECT PATH so 'nix', 'git', and 'python' are found
+# We include standard paths + Nix default paths + User Nix profile
+Environment="PATH=/nix/var/nix/profiles/default/bin:/home/datalog/.nix-profile/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+
+# Logging (Stdout goes to Journal, but your script redirects mostly to files)
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
