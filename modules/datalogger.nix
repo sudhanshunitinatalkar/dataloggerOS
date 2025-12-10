@@ -6,43 +6,41 @@ let
   githubUser = "sudhanshunitinatalkar";
   githubRepo = "datalog-bin"; 
 
-  # [FIX] We use 'pkgs.runCommand' instead of 'fetchurl'.
-  # This gives us full control to set 'unsafeDiscardReferences = true',
-  # which forces Nix to ignore the Python paths inside your compiled binaries.
-  fetchServiceBin = name: hash: pkgs.runCommand name {
-    # Fixed Output Derivation settings (allows network access during build)
+  # --- 2. THE PACKAGE BUILDER ---
+  # This downloads the binary and runs 'nuke-refs' to remove "foreign" 
+  # store paths (fixing the 'fixed output derivation' error).
+  fetchAndNuke = name: hash: pkgs.runCommand name {
     outputHashMode = "flat";
     outputHashAlgo = "sha256";
     outputHash = hash;
     
-    # CRITICAL: Tell Nix to ignore any /nix/store paths inside the binary
-    unsafeDiscardReferences = true;
-    
-    # We need curl to download the file
-    nativeBuildInputs = [ pkgs.curl ];
+    nativeBuildInputs = [ pkgs.curl pkgs.nukeReferences ];
   } ''
-    # Download the file (-L follows redirects, -k skips SSL cert check since we check the hash)
+    # 1. Download the binary
     curl -L -k "https://github.com/${githubUser}/${githubRepo}/releases/download/${releaseVersion}/${name}" -o $out
+    
+    # 2. Nuke References (Scrub foreign paths so Nix accepts the file)
+    nuke-refs $out
   '';
 
-  # --- 2. BINARY DEFINITIONS ---
-  # (Hashes from your GitHub release)
+  # --- 3. BINARY DEFINITIONS ---
+  # [UPDATED] Using the nuked hashes you just generated
   binaries = {
-    configure  = fetchServiceBin "configure"  "cf8fe1fdfde3c70ef430cbeba6d4217d83279184586235489d813470c2269a9b";
-    cpcb       = fetchServiceBin "cpcb"       "2674172bcbe42ae23511bb41c49b646c8792271871216503c80631310185975d";
-    data       = fetchServiceBin "data"       "b0658b2ab95ee734fe415f2b8e4e937746199583487056093847990177786851";
-    datalogger = fetchServiceBin "datalogger" "c8353df20f366d84017fc49f6a7385da418430f9a2d677894d0149023472719d";
-    display    = fetchServiceBin "display"    "b3b2c44663a7304335908d487e076632427e1b99793132715003c2718e000494";
-    network    = fetchServiceBin "network"    "2e3c5a652005134039f83e23e3e264663c46d328906649779d71783863486333";
-    saicloud   = fetchServiceBin "saicloud"   "856e23fb78502f9e7c554fa010f38b005391694f277123985798993883a88626";
+    configure  = fetchAndNuke "configure"  "0avbaayd0a3aidp465ngl0xnb1x473ylspx09j6c5xwx10wqf163";
+    cpcb       = fetchAndNuke "cpcb"       "1k3xb4cww3hlilwvgljcba9d05n31x9qi8m04vh89l6p8pypbpay";
+    data       = fetchAndNuke "data"       "1gzijag2sihwp104hczjsc3p900yy564shm9bjws89cxn982h3ym";
+    datalogger = fetchAndNuke "datalogger" "0hlv1rlm5clr8j93jmrbwvlshz9iw8knfva49b7l3m8cb2a2yq73";
+    display    = fetchAndNuke "display"    "0m82xhj0aw7p2m8sjdhdcwwxmy7z9ina6zak9d10mmkiwi2s5hf3";
+    network    = fetchAndNuke "network"    "0ycnkgqi5ik2xr3gjvik7cxaxfbvykz997h2a4ma5w011vlbkb49";
+    saicloud   = fetchAndNuke "saicloud"   "0wwjpfp7cc56l71cxzmb8mjbky9k21gd4vajw56khypzmswiv9ss";
   };
 
-  # --- 3. DIRECTORY SETUP ---
+  # --- 4. DIRECTORY SETUP ---
   baseDir = "${config.home.homeDirectory}/datalogger-bin";
   binDir  = "${baseDir}/bin";
   tmpDir  = "${baseDir}/tmp";
 
-  # --- 4. SERVICE GENERATOR ---
+  # --- 5. SERVICE GENERATOR ---
   mkService = name: _: {
     Unit = {
       Description = "Datalogger Service: ${name}";
@@ -52,6 +50,8 @@ let
 
     Service = {
       ExecStart = "${binDir}/${name}";
+      
+      # Use our custom temp dir so we don't fill up RAM (/tmp)
       Environment = "TMPDIR=${tmpDir}";
 
       Restart = "always";
@@ -63,20 +63,19 @@ let
       StandardError = "journal";
     };
 
-    Install = {
-      WantedBy = [ "default.target" ];
-    };
+    Install = { WantedBy = [ "default.target" ]; };
   };
 
 in
 {
-  # --- 5. ACTIVATION SCRIPT ---
+  # --- 6. ACTIVATION SCRIPT ---
   home.activation.installDataloggerBinaries = lib.hm.dag.entryAfter ["writeBoundary"] ''
     echo "--- [Datalogger] Installing Binaries ---"
     
     mkdir -p "${binDir}"
     mkdir -p "${tmpDir}"
 
+    # Get the dynamic loader path for THIS specific Pi
     INTERPRETER="$(cat ${pkgs.stdenv.cc}/nix-support/dynamic-linker)"
     echo "Using System Loader: $INTERPRETER"
 
@@ -85,11 +84,13 @@ in
       SRC=$2
       DEST="${binDir}/$NAME"
 
+      # Only update if file is missing or changed
       if [ ! -f "$DEST" ] || [ "$(sha256sum $DEST | cut -d' ' -f1)" != "$(sha256sum $SRC | cut -d' ' -f1)" ]; then
         echo "--> Updating $NAME..."
         cp "$SRC" "$DEST"
         chmod +x "$DEST"
         
+        # Patch the binary to run on this system
         ${pkgs.patchelf}/bin/patchelf --set-interpreter "$INTERPRETER" "$DEST"
         echo "    (Patched successfully)"
       else
@@ -100,6 +101,6 @@ in
     ${lib.concatStringsSep "\n" (lib.mapAttrsToList (name: src: "install_and_patch ${name} ${src}") binaries)}
   '';
 
-  # --- 6. SYSTEMD SERVICE REGISTRATION ---
+  # --- 7. REGISTER SERVICES ---
   systemd.user.services = lib.mapAttrs mkService binaries;
 }
