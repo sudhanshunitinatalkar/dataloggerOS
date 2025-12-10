@@ -4,9 +4,10 @@
 # INDUSTRIAL DATALOGGER BOOTSTRAP SCRIPT
 # Location: ~/dataloggerOS/datalogger_run.sh
 # Function: 
-#   1. Auto-updates git repository.
-#   2. Launches a single Nix environment.
-#   3. Spawns 7 parallel Python processes with self-healing (auto-restart) logic.
+#   1. KILLS any existing/stale datalogger processes (Anti-Duplication).
+#   2. Auto-updates git repository.
+#   3. Launches a single Nix environment.
+#   4. Spawns 7 parallel Python processes with self-healing (auto-restart) logic.
 # ==============================================================================
 
 # --- CONFIGURATION ---
@@ -14,6 +15,9 @@ REPO_DIR="$HOME/datalogger"
 REPO_URL="https://github.com/sudhanshunitinatalkar/datalogger.git"
 LOG_DIR="$HOME/datalogger_logs"
 BOOT_LOG="$LOG_DIR/boot_system.log"
+
+# List of specific script names to target for cleanup
+TARGET_SCRIPTS="configure|cpcb|data|datalogger|display|network|saicloud"
 
 # --- PRE-FLIGHT CHECKS ---
 mkdir -p "$LOG_DIR"
@@ -25,6 +29,19 @@ log_msg() {
 
 log_msg "=== BOOT SEQUENCE INITIATED ==="
 
+# --- STEP 0: CLEANUP STALE PROCESSES (The Fix) ---
+log_msg "Ensuring no duplicate processes are running..."
+# We use pgrep/pkill with the -f (full command line) flag to find our specific python scripts.
+if pgrep -f "python.*($TARGET_SCRIPTS)\.py" > /dev/null; then
+    log_msg "Found stale processes. Killing them now..."
+    pkill -f "python.*($TARGET_SCRIPTS)\.py"
+    sleep 2
+    # Double tap to be sure
+    pkill -9 -f "python.*($TARGET_SCRIPTS)\.py"
+else
+    log_msg "No stale processes found. Clean start."
+fi
+
 # --- STEP 1: GIT AUTO-UPDATE ---
 if [ ! -d "$REPO_DIR" ]; then
     log_msg "Repository missing. Cloning from source..."
@@ -32,13 +49,10 @@ if [ ! -d "$REPO_DIR" ]; then
         log_msg "Clone successful."
     else
         log_msg "CRITICAL FAILURE: Could not clone repository. Check internet/URL."
-        # In industrial context, we might retry or exit. 
-        # Here we exit to let systemd attempt a restart loop if configured.
         exit 1
     fi
 else
     log_msg "Repository found. Checking for updates..."
-    # Attempt pull, but don't fail boot if internet is down
     (
         cd "$REPO_DIR" || exit
         if git pull >> "$BOOT_LOG" 2>&1; then
@@ -51,7 +65,6 @@ fi
 
 # --- STEP 2: DEFINE SUPERVISOR LOGIC ---
 # This script block runs INSIDE the Nix environment.
-# It creates a monitoring loop for every python script.
 SUPERVISOR_SCRIPT=$(cat << 'EOF'
     # List of modules to run simultaneously
     SCRIPTS=("configure" "cpcb" "data" "datalogger" "display" "network" "saicloud")
@@ -72,14 +85,13 @@ SUPERVISOR_SCRIPT=$(cat << 'EOF'
             echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting Service: $name" >> "$service_log"
             
             # Run Python Script
-            # We redirect stdout/stderr here to catch crashes that happen *before* # the Python script initializes its own logging.
             python "$script_path" >> "$service_log" 2>&1
             
             # If we reach here, the script has crashed/exited
             EXIT_CODE=$?
             echo "[$(date '+%Y-%m-%d %H:%M:%S')] CRASH: $name exited with code $EXIT_CODE" >> "$service_log"
             
-            # Exponential backoff or simple delay to prevent CPU thrashing on boot loops
+            # Delay to prevent CPU thrashing
             echo "Restarting in 3 seconds..." >> "$service_log"
             sleep 3
         done
@@ -91,7 +103,6 @@ SUPERVISOR_SCRIPT=$(cat << 'EOF'
     done
 
     # IMPORTANT: Wait strictly keeps the parent shell alive.
-    # If we don't wait, the Nix session closes and kills all child processes.
     wait
 EOF
 )
@@ -103,8 +114,6 @@ log_msg "Launching Nix Develop Environment..."
 cd "$REPO_DIR" || { log_msg "CRITICAL: Cannot enter repo dir"; exit 1; }
 
 # Run nix develop. 
-# --command bash -c "..." executes our supervisor logic inside the flake environment.
-# We redirect all Nix output to the boot log to keep the terminal silent.
 nix develop . --command bash -c "$SUPERVISOR_SCRIPT" >> "$BOOT_LOG" 2>&1
 
 log_msg "CRITICAL: Nix environment exited unexpectedly. Service Stopping."
