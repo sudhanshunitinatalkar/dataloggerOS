@@ -45,7 +45,7 @@ fi
 # --- STEP 1: GIT AUTO-UPDATE ---
 if [ ! -d "$REPO_DIR" ]; then
     log_msg "Repository missing. Cloning from source..."
-    if git clone "$REPO_URL" "$REPO_DIR" >> "$BOOT_LOG" 2>&1; then
+    if git clone -b dev "$REPO_URL" "$REPO_DIR" >> "$BOOT_LOG" 2>&1; then
         log_msg "Clone successful."
     else
         log_msg "CRITICAL FAILURE: Could not clone repository. Check internet/URL."
