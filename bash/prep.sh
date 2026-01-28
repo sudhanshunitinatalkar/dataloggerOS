@@ -111,6 +111,8 @@ SETTINGS=(
     "dtparam=watchdog=on"
     "enable_uart=1"
     "dtoverlay=disable-bt"
+    "dtparam=spi=on" 
+    "dtoverlay=enc28j60"
 )
 if [ -f "$CONFIG_FILE" ]; then
     echo "Backing up config.txt to config.txt.bak..."
